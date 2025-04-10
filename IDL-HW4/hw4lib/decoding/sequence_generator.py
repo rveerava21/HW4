@@ -165,7 +165,41 @@ class SequenceGenerator:
             raise ValueError("max_length must be >= input sequence length")
         
         # TODO: Implement greedy search
-        raise NotImplementedError # Remove once implemented
+        #raise NotImplementedError # Remove once implemented
+        batch_size = x.size(0)
+        scores = torch.zeros(batch_size, device=self.device)
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+
+        for _ in range(self.max_length - x.size(1)):
+          if finished.all():
+              break
+
+          logits = self.score_fn(x)  # (batch_size, vocab_size)
+
+          # Apply repeat penalty
+          logits = self._apply_repeat_penalty(logits, x, penalty=repeat_penalty)
+
+          # Apply temperature scaling
+          logits = logits / temperature
+
+          # Greedy selection (argmax)
+          next_tokens = torch.argmax(logits, dim=-1)  # (batch_size,)
+
+          # Gather log-probability scores for selected tokens
+          log_probs = torch.log_softmax(logits, dim=-1)
+          token_scores = log_probs.gather(1, next_tokens.unsqueeze(1)).squeeze(1)
+
+          # Update total sequence scores only for unfinished samples
+          scores = torch.where(finished, scores, scores + token_scores)
+
+          # Append tokens
+          x = torch.cat([x, next_tokens.unsqueeze(1)], dim=1)
+
+          # Check EOS
+          is_eos = (next_tokens == self.tokenizer.eos_id)
+          finished = finished | is_eos
+
+        return x, scores
 
     def generate_beam(
             self,
