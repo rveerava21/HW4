@@ -231,8 +231,147 @@ class SequenceGenerator:
             raise ValueError("max_length must be >= input sequence length")
         
         # TODO: Implement beam search
-        raise NotImplementedError # Remove once implemented
+        #raise NotImplementedError # Remove once implemented
+        batch_size = x.size(0)
+        device = x.device
+        
+        # Start with the input sequences
+        # Each sequence is padded to length max_len and will be filled token-by-token
+        max_len = self.max_length
+        sequences = torch.full((batch_size, beam_width, max_len), self.tokenizer.pad_id, dtype=torch.long, device=device)
+        # Copy input to beginning of each beam sequence
+        for b in range(batch_size):
+            for k in range(beam_width):
+                sequences[b, k, :x.size(1)] = x[b]
+        
+        # Track current length of each sequence
+        seq_lengths = torch.full((batch_size, beam_width), x.size(1), dtype=torch.long, device=device)
+        
+        # Initialize scores and finished flags
+        scores = torch.zeros(batch_size, beam_width, device=device)
+        finished = torch.zeros(batch_size, beam_width, dtype=torch.bool, device=device)
+        
+        # Generate tokens one by one
+        for step in range(max_len - x.size(1)):
+            # Check if all sequences are finished
+            if finished.all():
+                break
+            
+            # Process each batch independently
+            for b in range(batch_size):
+                # Skip if all sequences in this batch are finished
+                if finished[b].all():
+                    continue
+                    
+                # Calculate log probabilities for next tokens
+                beam_log_probs = []
+                
+                for k in range(beam_width):
+                    if finished[b, k]:
+                        # For finished sequences, create a distribution that will keep the same token
+                        log_probs = torch.full((1, self.tokenizer.vocab_size), float('-inf'), device=device)
+                        log_probs[0, self.tokenizer.eos_id] = 0
+                    else:
+                        # Get the actual sequence up to its current length
+                        curr_seq = sequences[b, k, :seq_lengths[b, k]]
+                        
+                        # Get logits from score_fn
+                        #logits = self.score_fn(curr_seq.unsqueeze(0))  # (1, vocab_size)
+                        score_fn_b = lambda x: self.score_fn.__class__([self.score_fn.trees[b]], self.tokenizer)(x)
+                        logits = score_fn_b(curr_seq.unsqueeze(0))
 
+                        
+                        # Apply repetition penalty
+                        if repeat_penalty != 1.0:
+                            logits = self._apply_repeat_penalty(logits, curr_seq.unsqueeze(0), repeat_penalty)
+                        
+                        # Apply temperature
+                        logits = logits / temperature
+                        
+                        # Convert to log probs
+                        log_probs = torch.log_softmax(logits, dim=-1)  # (1, vocab_size)
+                    
+                    beam_log_probs.append(log_probs)
+                
+                # Handle based on step
+                if step == 0:
+                    # For first step, only use the first beam since all beams are identical
+                    combined_scores = beam_log_probs[0].view(-1)  # (vocab_size)
+                    
+                    # Select top-k tokens
+                    topk_scores, topk_indices = torch.topk(combined_scores, beam_width)
+                    
+                    # All tokens come from the first beam
+                    beam_indices = torch.zeros(beam_width, dtype=torch.long, device=device)
+                    token_indices = topk_indices
+                else:
+                    # Stack log probs for all beams
+                    stacked_log_probs = torch.cat(beam_log_probs, dim=0)  # (beam_width, vocab_size)
+                    
+                    # Add current scores to token probabilities
+                    combined_scores = scores[b].unsqueeze(1) + stacked_log_probs  # (beam_width, vocab_size)
+                    
+                    # Flatten scores for top-k selection
+                    flat_beam_scores = combined_scores.view(-1)  # (beam_width * vocab_size)
+                    
+                    # Select top-k tokens
+                    topk_scores, topk_indices = torch.topk(flat_beam_scores, beam_width)
+                    
+                    # Convert flat indices to beam indices and token indices
+                    beam_indices = topk_indices // self.tokenizer.vocab_size
+                    token_indices = topk_indices % self.tokenizer.vocab_size
+                
+                # Create new sequences and update metadata
+                new_sequences = torch.full((beam_width, max_len), self.tokenizer.pad_id, dtype=torch.long, device=device)
+                new_seq_lengths = torch.zeros(beam_width, dtype=torch.long, device=device)
+                new_finished = torch.zeros(beam_width, dtype=torch.bool, device=device)
+                
+                # Update sequences and metadata
+                for i in range(beam_width):
+                    if step == 0:
+                        # First step: all beams start from the same input
+                        src_beam_idx = 0
+                    else:
+                        # Later steps: select the parent beam
+                        src_beam_idx = beam_indices[i]
+                    
+                    # Get the new token
+                    token = token_indices[i]
+                    
+                    # Copy the parent sequence
+                    src_len = seq_lengths[b, src_beam_idx]
+                    new_sequences[i, :src_len] = sequences[b, src_beam_idx, :src_len]
+                    new_seq_lengths[i] = src_len
+                    
+                    # Check if the parent was already finished
+                    if finished[b, src_beam_idx]:
+                        new_finished[i] = True
+                        # Keep the sequence unchanged
+                    else:
+                        # Add the new token
+                        new_sequences[i, src_len] = token
+                        new_seq_lengths[i] = src_len + 1
+                        
+                        # Update finished status
+                        if token == self.tokenizer.eos_id:
+                            new_finished[i] = True
+                
+                # Update the batch's sequences, scores, and finished status
+                sequences[b] = new_sequences
+                seq_lengths[b] = new_seq_lengths
+                scores[b] = topk_scores
+                finished[b] = new_finished
+        
+        # Create final sequences of the right lengths
+        final_sequences = torch.zeros_like(sequences)
+        for b in range(batch_size):
+            for k in range(beam_width):
+                # Copy only up to the actual length
+                actual_len = seq_lengths[b, k]
+                final_sequences[b, k, :actual_len] = sequences[b, k, :actual_len]
+        
+        return final_sequences, scores
+        
     def generate_sample(
             self,
             x: torch.Tensor,

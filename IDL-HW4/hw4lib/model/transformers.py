@@ -290,7 +290,9 @@ class EncoderDecoderTransformer(nn.Module):
 
         # TODO: Create source and target embeddings and other layers
         # Use SpeechEmbedding class to create the source embedding
-        self.source_embedding = SpeechEmbedding(input_dim=input_dim, d_model=d_model, time_reduction=time_reduction, method=reduction_method) # Speech embedding
+        self.source_embedding = self.source_embedding = SpeechEmbedding(input_dim=input_dim, time_reduction=time_reduction, output_dim=d_model)
+
+        #self.source_embedding = SpeechEmbedding(input_dim=input_dim, d_model=d_model, time_reduction=time_reduction, method=reduction_method) # Speech embedding
 
 
         # TODO: Create the target embedding
@@ -379,6 +381,8 @@ class EncoderDecoderTransformer(nn.Module):
 
         # TODO: Return the encoded representation, padding mask, running attention weights, and CTC inputs (see docstring)
         #raise NotImplementedError
+        return x_enc, pad_mask_src, running_att, {'log_probs': ctc_logits, 'lengths': x_enc_lengths}
+
 
     def decode(
         self, 
