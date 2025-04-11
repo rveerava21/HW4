@@ -57,6 +57,7 @@ class LMTrainer(BaseTrainer):
           ignore_index=self.tokenizer.pad_id,
           label_smoothing=self.config["training"].get("label_smoothing", 0.0)
         )
+        
         #raise NotImplementedError # Remove once implemented
 
     def _train_epoch(self, dataloader) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
@@ -80,6 +81,7 @@ class LMTrainer(BaseTrainer):
 
         # Only zero gradients when starting a new accumulation cycle
         self.optimizer.zero_grad()
+        
 
         for i, batch in enumerate(dataloader):
             # TODO: Unpack batch from the dataloader
@@ -113,7 +115,9 @@ class LMTrainer(BaseTrainer):
             loss = raw_loss / self.config['training']['gradient_accumulation_steps']
             
             # TODO: Backpropagate the loss
-            self.scaler = self.scaler.scale(loss).backward()
+            #self.scaler = self.scaler.scale(loss).backward()
+            self.scaler.scale(loss).backward()
+            
         
             # Only update weights after accumulating enough gradients
             if (i + 1) % self.config['training']['gradient_accumulation_steps'] == 0:
@@ -406,16 +410,25 @@ class LMTrainer(BaseTrainer):
                 #raise NotImplementedError # Remove if you implemented the sampling method
             elif generation_config.get('beam_width', 1) > 1:
                 print("Generating with beam search...")
-                seqs, scores = NotImplementedError, NotImplementedError
-                raise NotImplementedError # Remove if you implemented the beam search method
+                seqs, scores = generator.generate_beam(
+                  prompts,
+                  beam_width=generation_config.get('beam_width', 5),
+                  temperature=generation_config.get('temperature', 1.0),
+                  repeat_penalty=generation_config.get('repeat_penalty', 1.0)
+                )
+                #raise NotImplementedError # Remove if you implemented the beam search method
                 # Take best beam and score
                 seqs = seqs[:, 0]
                 scores = scores[:, 0]
             else:
                 # TODO: Use the prompts and the generate_greedy method you implemented in the SequenceGenerator class to generate sequences
                 print("Generating with greedy search...")
-                seqs, scores = NotImplementedError, NotImplementedError
-                raise NotImplementedError # Remove if you implemented the greedy search method
+                seqs, scores = generator.generate_greedy(
+                  prompts,
+                  temperature=generation_config.get('temperature', 1.0),
+                  repeat_penalty=generation_config.get('repeat_penalty', 1.0)
+                )
+                #raise NotImplementedError # Remove if you implemented the greedy search method
 
         # Post-process sequences (trim upto EOS token)
         processed_seqs = generator.post_process_sequence(seqs, self.tokenizer)
