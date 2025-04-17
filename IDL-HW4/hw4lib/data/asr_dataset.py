@@ -173,20 +173,29 @@ class ASRDataset(Dataset):
             if self.partition != "test-clean":
                 # TODO: Load the transcript
                 # Note: Use np.load to load the numpy array and convert to list and then join to string 
+                # chars = np.load(os.path.join(self.text_dir, self.text_files[i])).tolist()
+                # if isinstance(chars[0], list):
+                #    chars = [c for sublist in chars for c in sublist]
+                # transcript = transcript = "".join([
+                #     chr(int(c)) for c in chars 
+                #     if isinstance(c, (int, float)) and 0 <= int(c) < 0x110000
+                # ])
                 chars = np.load(os.path.join(self.text_dir, self.text_files[i])).tolist()
-                if isinstance(chars[0], list):
-                   chars = [c for sublist in chars for c in sublist]
-                transcript = transcript = "".join([
-                    chr(int(c)) for c in chars 
-                    if isinstance(c, (int, float)) and 0 <= int(c) < 0x110000
-                ])
+                transcript = "".join(chars)
+
                                 
 
                 # TODO: Track character count (before tokenization)
                 self.total_chars += len(transcript)
 
                 # TODO: Use tokenizer to encode the transcript (see tokenizer.encode for details)
+                # Normalize transcript before tokenization
+                #transcript = transcript.upper().strip()  # Uppercase for vocab match, strip whitespace
+
                 tokenized = tokenizer.encode(transcript)
+                if len(transcript.strip()) == 0:
+                  continue
+
 
                 # Track token count (excluding special tokens)
                 # DO NOT MODIFY
