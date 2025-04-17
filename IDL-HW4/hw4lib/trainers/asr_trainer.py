@@ -107,10 +107,17 @@ class ASRTrainer(BaseTrainer):
         for i, batch in enumerate(dataloader):
             # TODO: Unpack batch and move to device
             feats, targets_shifted, targets_golden, feat_lengths, transcript_lengths = batch
+            feats = feats.to(self.device, non_blocking=True)
+            targets_shifted = targets_shifted.to(self.device, non_blocking=True)
+            targets_golden = targets_golden.to(self.device, non_blocking=True)
+            feat_lengths = feat_lengths.to(self.device, non_blocking=True)
+            transcript_lengths = transcript_lengths.to(self.device, non_blocking=True)
 
             with torch.autocast(device_type=self.device, dtype=torch.float16):
                 # TODO: get raw predictions and attention weights and ctc inputs from model
-                seq_out, curr_att, ctc_inputs = self.model(feats, targets_shifted, feat_lengths)
+                #seq_out, curr_att, ctc_inputs = self.model(feats, targets_shifted, feat_lengths)
+                seq_out, curr_att, ctc_inputs = self.model(feats, targets_shifted, feat_lengths, transcript_lengths)
+
 
                 
                 # Update running_att with the latest attention weights
@@ -122,7 +129,9 @@ class ASRTrainer(BaseTrainer):
                 
                 # TODO: Calculate CTC loss if needed
                 if self.ctc_weight > 0:
-                    log_probs = F.log_softmax(ctc_inputs, dim=-1)
+                    #log_probs = F.log_softmax(ctc_inputs, dim=-1)
+                    log_probs = ctc_inputs['log_probs']  # Already log-softmaxed inside model
+
                     ctc_input_lengths = torch.full((log_probs.size(1),), log_probs.size(0), dtype=torch.long).to(self.device)
                     ctc_loss = self.ctc_criterion(log_probs, targets_golden, ctc_input_lengths, transcript_lengths)
                     
