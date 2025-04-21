@@ -408,7 +408,7 @@ class ASRTrainer(BaseTrainer):
                 feats, _, targets_golden, feat_lengths, _ = batch
                 feats = feats.to(self.device)
                 feat_lengths = feat_lengths.to(self.device)
-                targets_golden = targets_golden.to(self.device)
+                #targets_golden = targets_golden.to(self.device)
                 
                 # TODO: Encode speech features to hidden states
                 encoder_output, pad_mask_src, _, _ = self.model.encode(feats, feat_lengths)
